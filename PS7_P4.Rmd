@@ -1,0 +1,175 @@
+```{r}
+
+# Clear enviroment before starting 
+remove(list = ls())
+
+# Prepare for Packages
+
+library(knitr)
+library(sandwich)
+library(lmtest)
+library(car) 
+library(stargazer)
+library(plm)
+library(AER)
+library(tidyverse) 
+library(forecast)
+library(strucchange)
+
+# Read Data
+
+mydta <- read.csv("C:/Users/Administrator/Downloads/us_macro_quarterly1.csv")
+
+```
+
+```{r}
+
+
+for (i in 1:dim(mydta)) { 
+ mydta$freq[i] <- 1955 + i*.25 - 0.25 # merge year and month into single counting variable
+}
+
+
+
+lagit4me <- function(serie,lag){
+  n = length(serie);
+  pad = rep(NA,lag);
+  return(c(pad,serie)[1:n]);
+}
+
+#set 8 lags (q) total
+mydta <- mydta %>% mutate(ln_PCE = log(PCE),
+                              ln_PCE_lag = lagit4me(ln_PCE,1),
+                              Infl = (ln_PCE - lagit4me(ln_PCE,1))*400,
+                              Infl_lag = lagit4me(Infl,1),
+                              Infl_lag2 = lagit4me(Infl,2),
+                              Infl_lag3 = lagit4me(Infl,3),
+                              Infl_lag4 = lagit4me(Infl,4),
+                              Infl_lag5 = lagit4me(Infl,5),
+                              Infl_lag6 = lagit4me(Infl,6),
+                              Infl_lag7 = lagit4me(Infl,7),
+                              Infl_lag8 = lagit4me(Infl,8),
+                              Infl_lag9 = lagit4me(Infl,9),
+                              d.Infl = Infl - Infl_lag,
+                              d.Infl.1 = Infl_lag - Infl_lag2,
+                              d.Infl.2 = Infl_lag2 - Infl_lag3,
+                              d.Infl.3 = Infl_lag3 - Infl_lag4,
+                              d.Infl.4 = Infl_lag4 - Infl_lag5,
+                              d.Infl.5 = Infl_lag5 - Infl_lag6,
+                              d.Infl.6 = Infl_lag6 - Infl_lag7,
+                              d.Infl.7 = Infl_lag7 - Infl_lag8,
+                              d.Infl.8 = Infl_lag8 - Infl_lag9)
+
+
+## subset data from 1963 to 2017
+mydta_sub <- mydta %>% filter(freq >= 1963)
+
+
+
+
+```
+
+```{r}
+
+# Question a, ii:Plot the value of Infl from 1963:01 through 2017:04.
+
+fig1 <- ggplot(mydta_sub, aes(x = freq, y = Infl, group = 1)) +
+  geom_line(colour = "black", size = 1) + 
+  scale_x_discrete(breaks = c(1960,1965,1970,1975,1980,1985,1990,1995,2000,2005,2010)) +
+  ggtitle("Inflation Rate for United States from first quarter of 1963 to fourth quarter of 2017") +
+  labs(x = "Year", y = "Logarithm value for United States Inflation Rate")
+
+fig1
+
+```
+
+```{r}
+#Question B,i. Compute the first four autocorrelations of change in Infl:
+
+change_Infl <- mydta_sub %>% select(d.Infl)
+acf(change_Infl, lag.max = 4, plot = F)
+
+```
+
+```{r}
+
+#ii. Plot the value of change in Infl from 1963:01 through 2017:04
+fig2 <- ggplot(mydta_sub, aes(x = freq, y = d.Infl, group = 1)) +
+  geom_line(colour = "black", size = 1) + 
+  scale_x_discrete(breaks = c(1960,1965,1970,1975,1980,1985,1990,1995,2000,2005,2010)) +
+  ggtitle("Change in United States Inflation rate from 1963 to 2017") +
+  labs(x = "Year", y = "Logarithm value for change in United States Inflation Rate")
+
+fig2
+
+```
+
+```{r}
+
+#Question c. i. Run an OLS regression of change in Infl t on Infl t-1 . 
+
+reg_OLS <- lm(d.Infl ~ d.Infl.1, data = mydta_sub)
+summary(reg_OLS)
+coeftest(reg_OLS, vcov = vcovHC(reg1, type = "HC1"))
+
+```
+
+```{r}
+#ii. Estimate an AR(2) model for change in Infl.
+
+reg_AR2 <- lm(d.Infl ~ d.Infl.1 + d.Infl.2, data = mydta_sub)
+summary(reg_AR2)
+coeftest(reg_AR2, vcov = vcovHC(reg_AR2, type = "HC1"))
+```
+
+```{r}
+#iii. Estimate an AR(p) model for p = 0, ... , 8.
+
+T = dim(mydta_sub)[1] # make T used in BIC formula
+df_2 <- mydta_sub %>% # save change in Infl and its 8 lags into one data frame
+  select(d.Infl, d.Infl.1, d.Infl.2, d.Infl.3, d.Infl.4, d.Infl.5, d.Infl.6, d.Infl.7, d.Infl.8)
+df_M <- list() # use list to save matrices
+M <- list() # list can also save regressions
+col1 <- matrix(); col2 <- matrix(); col3 <- matrix(); col4 <- matrix(); col5 <- matrix()
+
+# due to counting matrices starting at 1, lets simplify by doing the p=0 regression separately
+p0 <- lm(d.Infl ~ 1, data = mydta %>% filter(freq >= 1963))
+SSR.0 <- sum(resid(p0)^2)
+
+col1.0 <- SSR.0/T
+col2.0 <- log(col1.0)
+col3.0 <- (0 + 1)*log(T)/T
+col4.0 <- col2.0 + col3.0
+col5.0 <- summary(p0)$r.squared
+row.0 <- cbind(col1.0, col2.0, col3.0, col4.0, col5.0)
+
+# we can use the following loop to run the rest of the 8 regressions
+for (p in 1:8) { 
+  df_M[[p]] <- df_2[,1:(p+1)] # save the data frame to contain only the change in Infl and its p-count of lags
+  M[[p]] <- lm(d.Infl ~ .,  data = df_M[[p]]) # lm(y ~ ., data) regresses y on all other columns in data
+  
+  col1[p] <- sum(resid(M[[p]])^2)/T # SSR(p)/T
+  col2[p] <- log(col1[p])
+  col3[p] <- (p+1)*log(T)/T
+  col4[p] <- col2[p] + col3[p]
+  col5[p] <- summary(M[[p]])$r.squared
+}
+
+table_1 <- as.data.frame(cbind( 0:8, rbind(row.0, cbind(col1, col2, col3, col4, col5))))
+names(table_1) <- c("p", "SSR(p)/T", "ln[SSR(p)/T]", "(p+1)ln(T)/T", "BIC(p)", "R^2")
+knitr::kable(table_1)
+
+```
+
+```{r}
+
+# Question d. i. Use the ADF test for the regression in Equation (15.32) with two lags of change in Infl
+
+reg_ADF <- lm(d.Infl ~ Infl_lag + d.Infl.1 + d.Infl.2, data = mydta_sub)
+summary(reg_ADF)
+```
+
+```{r}
+
+```
+
