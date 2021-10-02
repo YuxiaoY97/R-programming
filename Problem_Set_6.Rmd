@@ -1,0 +1,218 @@
+```{r}
+
+#Probelem 3
+
+library(tidyverse)
+library(knitr)
+library(sandwich)
+library(lmtest)
+library(car)
+library(stargazer)
+library(AER)
+library(ggplot2)
+
+
+
+```
+
+```{r}
+## Question b). Estimate a linear probability model of affair (not affairs) on male, age, yearsmarried, kids, religiousness, education, and rating (all in one regression). Remember to use heteroskedasticity-robust standard errors.
+
+mydata <- read.csv("C:/Users/Administrator/Downloads/affairs.csv")
+
+reg1<-lm(affair ~ male + age + yearsmarried + kids + religiousness + education + rating , mydata)
+summary (reg1)
+coeftest(reg1, vcov = vcovHC(reg1, type = "HC1"))
+
+
+```
+
+```{r}
+## question f). Estimate the same regression as in (b) using a probit regression. 
+
+reg2<-glm(affair ~ male + age + yearsmarried + kids + religiousness + education + rating, family=binomial(link="probit"),data =  mydata)
+summary (reg2)
+
+```
+
+```{r}
+## question h). Estimate the same regression as in (b) using a logit regression.
+
+
+reg3<-glm(affair ~ male + age + yearsmarried + kids + religiousness + education + rating, family=binomial(link="logit"),data =  mydata)
+summary (reg3)
+
+```
+
+```{r}
+
+#Problem 4
+
+library(tidyverse)
+library(data.table)
+install.packages("glmnet")
+library(glmnet)
+install.packages("pls")
+library(pls)
+install.packages("caret")
+library(caret)
+
+```
+
+```{r}
+
+## question a) set the first one as training sample and the second one as test sample in all the analyses that follow.
+
+## Import Data set
+
+training_sample <-fread("C:/Users/Administrator/Downloads/CASchools_EE141_InSample.csv",header=TRUE, sep=",")
+test_sample <- fread("C:/Users/Administrator/Downloads/CASchools_EE141_OutOfSample.csv",header=TRUE, sep=",")
+
+
+
+```
+
+```{r}
+
+## question b) Separate test-score from the list of variables and set it aside as it will be the dependent variable in the analyses below. Using the remaining 20 variables, construct squares of all predictors as well as all of the interactions. Repeat this for both the train and test sample.Collect the 20 primitive predictors, their squares, and all interactions into a set of k predictors.Verify that you have 20+20+(20*19)/2=230 predictors. 
+
+#Prepare Data
+model_to_run = "large"
+smp_siz_test = floor(0.5*nrow(test_sample))
+smp_siz_training = floor(0.5*nrow(training_sample))
+y_test <- test_sample %>% select(testscore) %>% as.matrix()
+X_test <- training_sample %>% select(-testscore) %>% as.matrix()
+
+
+if (model_to_run == "small") {
+  var_list <- c("testscore", "str_s", "med_income_z", "ada_enrollment_ratio_d")
+} else if (model_to_run == "large") {
+  
+  var_list <- c("frpm_frac_s", "enrollment_s", "ell_frac_s", "edi_s", "te_fte_s", "te_avgyr_s","te_salary_low_d", "te_salary_avg_d", "te_days_d", "te_serdays_d", "age_frac_5_17_z", "pop_1_older_z", "ed_frac_hs_z","ed_frac_sc_z", "ed_frac_ba_z", "ed_frac_grd_z", "med_income_z", "testscore", "str_s","ada_enrollment_ratio_d", "charter_s")
+}
+
+test_sample<- subset( test_sample,select=var_list)
+training_sample  <- subset(training_sample,select=var_list)
+
+
+if (model_to_run == "large") {
+  # Preparing Y and X matrices
+  dim.init <- dim(training_sample)[2]
+  # Interactions terms between predictors:
+  for (i in 2: (dim.init) ) {
+    for (j in i : (dim.init) ) {
+      training_sample[,paste(names(training_sample)[i],":",names(training_sample)[j],
+                             sep="")] <- training_sample[,..i] * training_sample[,..j]
+      test_sample[,paste(names(test_sample)[i],":",names(test_sample)[j],
+                         sep="")] <- test_sample[,..i] * test_sample[,..j]
+    }
+  }  
+}
+
+# Drop the predictor (charter_s)2 from the list of 230 predictors, leaving 229 predictors for the analysis, Answer:We drop this to in case of Perfect Multicollinearity situation!
+
+training_sample <- training_sample %>% select(-`charter_s:charter_s`)
+test_sample <- test_sample %>% select(-'charter_s:charter_s')
+
+
+
+
+```
+
+```{r}
+
+# questio c) Next, standardize the predictors in the train sample, subtracting their means and dividing by their standard deviations, and de-mean the dependent variable. Similarly, use the means and standard deviations from the train sample to standardize and demean the predictors and dependent variable in the test sample.
+
+x_train <- training_sample %>% select(-testscore) %>% as.matrix()
+x_test  <- test_sample %>% select(-testscore) %>% as.matrix()
+y_train <- training_sample %>% select(testscore) %>% as.matrix()
+y_test  <- test_sample %>% select(testscore) %>% as.matrix()
+
+X_train_unstd  <- cbind(X_train,as.vector(matrix(1,nrow(X_train))))
+X_test_unstd   <- cbind(X_test,as.vector(matrix(1,nrow(X_test))))
+
+preProc <- preProcess(training_sample, method = c("center", "scale"))
+
+X_train_std <- predict(preProc, training_sample) %>% select(-testscore) %>% as.matrix()
+X_test_std  <- predict(preProc, test_sample) %>% select(-testscore) %>% as.matrix()
+
+y_train_std <- y_train - mean(y_train) 
+y_test_std  <- y_test - mean(y_train)
+
+```
+
+```{r}
+# question d) Using the train sample data, compute the standardized OLS coefficients and print on the screen the first 20. Next use 10-fold cross validation on the train data to estimate the in-sample RMSPE. Lastly, apply the estimated OLS coefficients to the test sample and compute the out-of-sample RMSPE. Make sure both in-sample and out-of-sample predictions are computed using the unstandardized regression coefficients and variables so that the corresponding RMSPEs are expressed in the same scale as the original data is. 
+
+#1.compute the standardized OLS coefficients and print on the screen the first 20.
+
+ols<-qr.solve(X_train_std,y_train_std,tol=1e-8)
+print(beta_ols[1:10,1])
+
+#2. Next use 10-fold cross validation on the train data to estimate the in-sample RMSPE.
+
+data_control<-training_Control(method="cv",number=10)
+OLS_CV<-train(testscore~.,data = training_sample,trControl=data_control,method="lm",na.action = na.pass)
+
+#3. compute the out-of-sample RMSPE
+
+OLS_predictions<-OLS_CV%>%predit(test_sample)
+RMSE(OLS_predictions,test_sample$testscore) 
+
+
+
+
+```
+
+```{r}
+## qestion e) Repeat the same exercise in (d) using Ridge and LASSO. For both methods, first produce a plot of the unstandardized in-sample MSPE as a function of the shrinkage parameter � and select the optimal shrinkage parameter by minimizing the in-sample MSPE. Next, use the optimal � to compute the insample and out-of-sample unstandardized RMSPEs. What do you find? How do the Ridge and LASSO insample and out-of-sample RMSPEs compare to the OLS ones?
+
+#produce a plot of the unstandardized in-sample MSPE using Ridge
+ridge_cv<-cv.glmnet(X_train_std,y_train_std,alpha=0,standardize=FALSE,nfolds = 10)
+plot(ridge_cv)
+
+lamda_cv<-ridge_cv$lambda.min
+Ridge_cv_std<-glmnet(X_train_std,y_train_std,alpha=0,lambda = lamda_cv,standardize = FALSE)
+print(Ridge_cv_std$beta[1:10,1])
+
+y_hat_cv_is<-predict(Ridge_cv_std,X_train_std)
+y_hat_cv_oos<-predict(Ridge_cv_std,X_test_std)
+
+
+# in sample Ridge RMS
+sqrt((t(y_train_std-y_hat_cv_is)%*%(y_train_std-y_hat_cv_is))/smp_siz) 
+
+# Out of sample Ridge RMS
+sqrt((t(y_test_std-y_hat_cv_oos)%*%(y_test_std-y_hat_cv_oos))/smp_siz)   
+
+# Lasso
+lasso_cv<-cv.glmnet(X_train_std,y_train_std,alpha=1,standardize=FALSE,nfolds = 10)
+plot(lasso_cv)
+
+lamda_cv<-lasso_cv$lambda.min
+
+lasso_cv_unstd<-glmnet(X_train_unstd,y_train,alpha=1,lambda=lamda_cv,standardize = TRUE)
+
+print(lasso_cv_unstd$beta[1:10,1])
+
+
+
+```
+
+```{r}
+##question f) Finally, use PCA to estimate all principal components from the set of standardized train predictors and produce the associated scree-plot. How many principal components do you need to explain 90% of the total variation in the original set of predictors? Next, use 10-fold cross validation with the in-sample data and plot the cross-validated in-sample MSPE as a function of the number of principal components.Based on this plot, how many components should you use to minimize the in-sample MSPE? Finally, use the optimal number of PCs you just computed to estimate in sample and out of sample unstandardized RMPSEs. How do these compare to Ridge and LASSO RMSPEs? And how these compare to OLS RMPSEs? 
+
+#use PCA to estimate all principal components from the set of standardized train predictors and produce the associated scree-plot.
+
+pca_model<-princomp(X_train_std)
+
+y_plot<-pca_model$sdev^2/sum(pca_model$sdev^2)
+
+barplot(y_plot)
+
+#Next, use 10-fold cross validation with the in-sample data and plot the cross-validated in-sample MSPE
+
+pcr_cv<-pcr(y_train_std~X_train_std,scale=TRUE,validation="CV")
+
+```
+
