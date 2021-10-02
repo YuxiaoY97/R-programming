@@ -1,0 +1,95 @@
+```{r}
+## Import File
+
+mydata = load(file = "C:/Users/Administrator/Downloads/Peace_Corps.RData")
+
+
+library(tidyverse)
+library(ggplot2)
+library(sandwich)
+install.packages("plm")
+library(plm)
+install.packages("stargazer")
+library(stargazer)
+library(lmtest)
+library(sandwich)
+install.packages("knitr")
+library(knitr)
+library(car)
+```
+
+```{r}
+## question b) Run a pooled regression of Peace Corps applicants per capita on the state unemployment rate and year dummies. Describe and critique the results.
+
+reg1 <- lm(appspc ~ unemployrate + factor(year), data = dta)
+summary(reg1)
+coeftest(reg1, vcov = vcovHC(reg1, type = "HC1"))
+
+
+```
+
+```{r}
+##question c) Plot the relationship between the unemployment and Peace Corps applications with the state of the observation labeled.
+
+reg2 <- lm(appspc ~ unemployrate, data = dta)
+summary(reg2)
+
+plot(dta$unemployrate,dta$appspc)
+abline(46.2255 ,0.8353)
+
+#Create a scatterplot without the outliers
+
+dta_without_outliers <- dta %>% filter(appspc < 200)
+
+plot(dta_without_outliers$unemployrate, dta_wo_outliers$appspc)
+
+```
+
+```{r}
+#question d) Run the pooled model from above without the outliers. Comment briefly on the results
+reg3 <- lm(appspc ~ unemployrate+ factor(year), data = dta_without_outliers)
+summary(reg3)
+
+
+
+```
+
+```{r}
+## question e)	Run a fixed effect model with state fixed effects and without the outlier using the n-1 binary variable method
+
+reg4 <- lm(appspc ~ unemployrate + factor(state) + factor(year), dta_wo_outliers)
+summary(reg4)
+coeftest(reg4, vcov = vcovHC(reg3, type = "HC1"))
+
+```
+
+```{r}
+##question f) Rerun a fixed effect model without the outlier using the fixed effects command in R and adding year fixed effects. Compute clustered standard errors. 
+library(plm)
+reg5<-plm(appspc~beertax+ factor(state) + factor(year),dta_wo_outliers,index=c("state","year"),method="within")
+summary(reg5)
+fixef(reg5)
+coeftest(reg5, vcov = vcovHC(reg5, type = "HC1", cluster = "group"))
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
